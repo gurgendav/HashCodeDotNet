@@ -2,7 +2,9 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection.Metadata;
 using System.Text;
+using MoreLinq;
 
 namespace HashCode
 {
@@ -13,8 +15,10 @@ namespace HashCode
 
     public class Street
     {
-        public int IntersectionStart { get; set; }
-        public int IntersectionEnd { get; set; }
+        public int IntersectionStartId { get; set; }
+        public int IntersectionEndId { get; set; }
+        
+        public Intersection IntersectionEnd { get; set; }
         public string Name { get; set; }
         public int Time { get; set; }
 
@@ -25,6 +29,8 @@ namespace HashCode
     {
         public Street Street { get; set; }
         public int Duration { get; set; }
+        
+        public int AccumlativeMoment { get; set; }
     }
 
     public class Intersection
@@ -42,6 +48,9 @@ namespace HashCode
         public List<Street> Streets { get; set; }
         
         public HashSet<string> StreetsSet { get; set; }
+        
+        public int CurrentStreetIndex { get; set; }
+        public int CurrentStreetPosition { get; set; }
     }
 
     public class Input
@@ -63,7 +72,7 @@ namespace HashCode
     {
         private static Random _random = new Random();
 
-        static Input Solve(Input input)
+        static Input Solve(Input input, int something)
         {
             foreach (var intersection in input.Intersections.Values)
             {
@@ -87,16 +96,16 @@ namespace HashCode
                 {
                     var portion = (double)street.TotalCarCount / totalCarCount;
 
-                    if (portion < 0.1)
+                    if (portion < 1 / (double)something)
                     {
                         continue;
                     }
 
-                    var time = (int)Math.Round(portion * 100);
+                    var time = (int)Math.Round(portion);
                     
                     intersection.Schedule.Add(new Schedule
                     {
-                        Duration = time,
+                        Duration = Math.Max(time, input.Duration),
                         Street = street
                     });
                 }
@@ -107,28 +116,142 @@ namespace HashCode
 
         static int Validate(Input input)
         {
-            
-            
-            for (int i = 0; i < input.Duration; i++)
+            var paths = input.Paths;
+
+            var streetQueue = new Dictionary<Street, Queue<Path>>();
+            foreach (var streetsValue in input.Streets.Values)
             {
+                streetQueue[streetsValue] = new Queue<Path>();
+            }
+            
+            foreach (var path in paths)
+            {
+                path.CurrentStreetIndex = 0;
+                path.CurrentStreetPosition = path.Streets[path.CurrentStreetIndex].Time;
                 
+                streetQueue[path.Streets[0]].Enqueue(path);
             }
 
-            return 0;
+            foreach (var intersection in input.Intersections.Values)
+            {
+                if (!intersection.Schedule.Any())
+                {
+                    continue;
+                }
+
+                intersection.Schedule[0].AccumlativeMoment = intersection.Schedule[0].Duration;
+
+                for (int i = 1; i < intersection.Schedule.Count; i++)
+                {
+                    intersection.Schedule[i].AccumlativeMoment = intersection.Schedule[i - 1].AccumlativeMoment +
+                                               intersection.Schedule[i].Duration;
+                }
+            }
+
+            int score = 0;
+
+            for (int i = 0; i < input.Duration + 1; i++)
+            { 
+                foreach (var path in paths)
+                {
+                    if (path.Streets.Count <= path.CurrentStreetIndex)
+                    {
+                        continue;
+                    }
+                    
+                    var currentStreet = path.Streets[path.CurrentStreetIndex];
+
+                    if (path.CurrentStreetPosition < currentStreet.Time)
+                    {
+                        path.CurrentStreetPosition++;
+
+                        if (path.CurrentStreetPosition == currentStreet.Time)
+                        {
+                            if (path.CurrentStreetIndex == path.Streets.Count - 1)
+                            {
+                                path.CurrentStreetIndex = int.MaxValue;
+                                score += input.BonusPoints + (input.Duration - i);
+                            }
+                            else
+                            {
+                                streetQueue[currentStreet].Enqueue(path);
+                            }
+                        }
+                        continue;
+                    }
+
+                    var currentQueue = streetQueue[currentStreet];
+                    if (currentQueue.Peek() != path)
+                    {
+                        continue;
+                    }
+
+                    var schedule =
+                        currentStreet.IntersectionEnd.Schedule;
+                    var currentSchedule = schedule.FirstOrDefault(s => s.Street == currentStreet);
+                    if (currentSchedule == null)
+                    {
+                        continue;
+                    }
+
+                    var scheduleLength = schedule.Select(s => s.Duration).Sum();
+                    var currentTick = i - Math.Floor(i / (double) scheduleLength) * scheduleLength;
+
+                    var greenLightFor = schedule.Last().Street;
+                    for (int j = schedule.Count - 2; j >= 0; j--)
+                    {
+                        var sch = schedule[j];
+                        if (sch.AccumlativeMoment >= currentTick)
+                        {
+                            greenLightFor = sch.Street;
+                        }
+                        
+                        break;
+                    }
+
+                    if (greenLightFor != currentStreet)
+                    {
+                        continue;
+                    }
+
+                    currentQueue.Dequeue();
+                    path.CurrentStreetIndex++;
+                    path.CurrentStreetPosition = 0;
+                }
+            }
+
+            return score;
         }
 
         static void Execute(string fileName)
         {
             Console.WriteLine($"Processing: {fileName}");
 
-            var input = ReadFile(fileName);
+            var maxI = 10;
+            var maxScore = 0;
+            for (int i = 1; i < 10; i += 1)
+            {
+                var input = ReadFile(fileName);
 
-            var result = Solve(input);
+                Solve(input, i);
             
-            //var score = Validate(input, result);
-            //Console.WriteLine($"Processing finished, score: {score}");
+                var score = Validate(input);
+                if (score > maxScore)
+                {
+                    maxScore = score;
+                    maxI = i;
+                    Console.WriteLine($"New max score: {maxScore} at {i}");
+                }
+            }
             
-            WriteResult(fileName, result);
+            Console.WriteLine($"Processing finished, score: {maxScore}");
+
+            if (maxScore > 0)
+            {
+                var input = ReadFile(fileName);
+                var result = Solve(input, maxI);
+                WriteResult(fileName, result);
+            }
         }
 
         static void Main(string[] args)
@@ -216,38 +339,40 @@ namespace HashCode
 
                 var street = new Street
                 {
-                    IntersectionStart = int.Parse(parts[0]),
-                    IntersectionEnd = int.Parse(parts[1]),
+                    IntersectionStartId = int.Parse(parts[0]),
+                    IntersectionEndId = int.Parse(parts[1]),
                     Name = parts[2],
                     Time = int.Parse(parts[3])
                 };
 
-                if (!input.Intersections.TryGetValue(street.IntersectionEnd, out var intersection))
+                if (!input.Intersections.TryGetValue(street.IntersectionEndId, out var intersection))
                 {
                     intersection = new Intersection
                     {
-                        Id = street.IntersectionEnd,
+                        Id = street.IntersectionEndId,
                         In = new List<Street>(),
                         Out = new List<Street>()
                     };
 
-                    input.Intersections[street.IntersectionEnd] = intersection;
+                    input.Intersections[street.IntersectionEndId] = intersection;
                 }
                 intersection.In.Add(street);
                 
-                if (!input.Intersections.TryGetValue(street.IntersectionStart, out var intersection2))
+                if (!input.Intersections.TryGetValue(street.IntersectionStartId, out var intersection2))
                 {
                     intersection2 = new Intersection
                     {
-                        Id = street.IntersectionStart,
+                        Id = street.IntersectionStartId,
                         In = new List<Street>(),
                         Out = new List<Street>()
                     };
 
-                    input.Intersections[street.IntersectionStart] = intersection2;
+                    input.Intersections[street.IntersectionStartId] = intersection2;
                 }
                 intersection.Out.Add(street);
 
+                street.IntersectionEnd = input.Intersections[street.IntersectionEndId];
+                
                 streets[street.Name] = street;
             }
 
@@ -265,7 +390,7 @@ namespace HashCode
                 var path = new Path
                 {
                     Streets = carPaths,
-                    StreetsSet = new HashSet<string>(parts[1..])
+                    StreetsSet = new HashSet<string>(parts[1..]),
                 };
 
                 foreach (var street in carPaths)
