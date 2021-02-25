@@ -19,8 +19,7 @@ namespace HashCode
     public class Program
     {
 
-
-
+        
 
         static Result Solve(Input input)
         {
@@ -63,6 +62,24 @@ namespace HashCode
         static void Main(string[] args)
         {
             int? fileNumber = null;
+            
+            if (args.Length == 1)
+            {
+                if (int.TryParse(args[0], out var result))
+                {
+                    fileNumber = result;
+                }
+                else
+                {
+                    Console.Error.WriteLine("Argument should be a number");
+                    return;
+                }
+            } 
+            else if (args.Length != 0)
+            {
+                Console.Error.WriteLine("Only one argument is accepted, index of file");
+                return;
+            }
 
             // ReSharper disable once ConditionIsAlwaysTrueOrFalse
             if (fileNumber != null)
